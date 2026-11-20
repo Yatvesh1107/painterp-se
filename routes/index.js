@@ -1,6 +1,11 @@
 const express = require('express');
 const authRoutes = require('./auth.routes');
 const adminRoutes = require('./admin.routes');
+const partyRoutes = require('./party.routes');
+const serviceRoutes = require('./service.routes');
+const quotationRoutes = require('./quotation.routes');
+const siteRoutes = require('./site.routes');
+const invoiceRoutes = require('./invoice.routes');
 
 const router = express.Router();
 
@@ -10,5 +15,10 @@ router.get('/health', (req, res) => {
 
 router.use('/auth', authRoutes);
 router.use('/admin', adminRoutes);
+router.use('/parties', partyRoutes);
+router.use('/services', serviceRoutes);
+router.use('/quotations', quotationRoutes);
+router.use('/sites', siteRoutes);
+router.use('/invoices', invoiceRoutes);
 
 module.exports = router;
