@@ -1,0 +1,22 @@
+{
+  "name": "painterp-se",
+  "version": "1.0.0",
+  "description": "PaintErp backend service",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed:admin": "node scripts/seed-admin.js"
+  },
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.19.0"
+  }
+}
