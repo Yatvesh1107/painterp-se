@@ -51,18 +51,36 @@ const calculateTotals = (items = [], discount = 0, taxEnabled = false, taxRate =
 
 const getQuotations = async (req, res) => {
   try {
-    const { status, partyId } = req.query;
+    const { status, partyId, siteId } = req.query;
     let query = {};
 
     if (status) query.status = status;
     if (partyId) query.party = partyId;
+    if (siteId) query.site = siteId;
 
     const quotations = await Quotation.find(query)
       .populate('party', 'name phone email address')
-      .populate('site', 'name siteNumber status')
+      .populate('site', 'name siteNumber address status')
       .sort({ createdAt: -1 });
 
-    res.status(200).json(quotations);
+    // Check which quotations already have invoices created
+    const Invoice = require('../models/invoice.model');
+    const existingInvoices = await Invoice.find({ quotation: { $ne: null } }).select('quotation invoiceNumber');
+    const invoicedMap = new Map();
+    existingInvoices.forEach((inv) => {
+      if (inv.quotation) {
+        invoicedMap.set(inv.quotation.toString(), inv.invoiceNumber);
+      }
+    });
+
+    const enriched = quotations.map((q) => {
+      const plain = q.toObject();
+      plain.isInvoiced = invoicedMap.has(q._id.toString());
+      plain.invoiceNumber = invoicedMap.get(q._id.toString()) || null;
+      return plain;
+    });
+
+    res.status(200).json(enriched);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -88,6 +106,7 @@ const createQuotation = async (req, res) => {
   try {
     const {
       party,
+      site,
       title,
       date,
       validUntil,
@@ -102,12 +121,17 @@ const createQuotation = async (req, res) => {
       return res.status(400).json({ message: 'Party is required' });
     }
 
+    if (!site) {
+      return res.status(400).json({ message: 'Site is required. A quotation must be linked to a specific site.' });
+    }
+
     const totals = calculateTotals(items, discount, taxEnabled, taxRate);
     const quotationNumber = await generateNextNumber(Quotation, 'QTN', 'quotationNumber');
 
     const quotation = await Quotation.create({
       quotationNumber,
       party,
+      site,
       title: title || 'Painting Work Quotation',
       date: date || new Date(),
       validUntil,
@@ -123,7 +147,9 @@ const createQuotation = async (req, res) => {
       createdBy: req.account?._id,
     });
 
-    const populated = await Quotation.findById(quotation._id).populate('party');
+    const populated = await Quotation.findById(quotation._id)
+      .populate('party')
+      .populate('site');
     res.status(201).json(populated);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -135,6 +161,7 @@ const updateQuotation = async (req, res) => {
     const {
       title,
       party,
+      site,
       date,
       validUntil,
       items,
@@ -147,23 +174,26 @@ const updateQuotation = async (req, res) => {
 
     const totals = calculateTotals(items, discount, taxEnabled, taxRate);
 
+    const updateData = {
+      title,
+      party,
+      date,
+      validUntil,
+      items: totals.items,
+      subtotal: totals.subtotal,
+      discount: totals.discount,
+      taxEnabled: totals.taxEnabled,
+      taxRate: totals.taxRate,
+      taxAmount: totals.taxAmount,
+      totalAmount: totals.totalAmount,
+      terms,
+      status,
+    };
+    if (site) updateData.site = site;
+
     const quotation = await Quotation.findByIdAndUpdate(
       req.params.id,
-      {
-        title,
-        party,
-        date,
-        validUntil,
-        items: totals.items,
-        subtotal: totals.subtotal,
-        discount: totals.discount,
-        taxEnabled: totals.taxEnabled,
-        taxRate: totals.taxRate,
-        taxAmount: totals.taxAmount,
-        totalAmount: totals.totalAmount,
-        terms,
-        status,
-      },
+      updateData,
       { new: true, runValidators: true }
     )
       .populate('party')
@@ -182,15 +212,23 @@ const updateQuotation = async (req, res) => {
 // Approve quotation & automatically create/link Site
 const approveQuotation = async (req, res) => {
   try {
-    const quotation = await Quotation.findById(req.params.id).populate('party');
+    const quotation = await Quotation.findById(req.params.id)
+      .populate('party')
+      .populate('site');
     if (!quotation) {
       return res.status(404).json({ message: 'Quotation not found' });
     }
 
     quotation.status = 'approved';
 
-    // If site is not yet created for this quotation, auto-create Site
-    if (!quotation.siteCreated) {
+    // If quotation already has a site (standard flow), ensure site is linked
+    if (quotation.site) {
+      quotation.siteCreated = true;
+      await Site.findByIdAndUpdate(quotation.site._id || quotation.site, {
+        quotation: quotation._id,
+      });
+    } else {
+      // Fallback for legacy quotations created before site selection was mandatory
       const siteNumber = await generateNextNumber(Site, 'SITE', 'siteNumber');
       const site = await Site.create({
         siteNumber,
@@ -214,7 +252,7 @@ const approveQuotation = async (req, res) => {
       .populate('site');
 
     res.status(200).json({
-      message: 'Quotation approved and site created successfully',
+      message: 'Quotation approved successfully',
       quotation: updated,
     });
   } catch (error) {

@@ -110,13 +110,43 @@ const createInvoice = async (req, res) => {
       return res.status(400).json({ message: 'Party is required' });
     }
 
+    // Validate quotation if provided
+    let finalSite = site;
+    if (quotation) {
+      const Quotation = require('../models/quotation.model');
+      const linkedQuote = await Quotation.findById(quotation);
+      if (!linkedQuote) {
+        return res.status(404).json({ message: 'Linked quotation not found' });
+      }
+
+      // Financial Edge Case: Quotation must be approved to be invoiced
+      if (linkedQuote.status !== 'approved') {
+        return res.status(400).json({
+          message: `Cannot invoice quotation with status '${linkedQuote.status}'. Quotation must be 'approved' before generating an invoice.`,
+        });
+      }
+
+      // Financial Edge Case: Prevent duplicate billing of same quotation
+      const existingInvoice = await Invoice.findOne({
+        quotation,
+        status: { $ne: 'cancelled' },
+      });
+      if (existingInvoice) {
+        return res.status(400).json({
+          message: `Quotation is already invoiced under Invoice #${existingInvoice.invoiceNumber}. Duplicate billing is prevented.`,
+        });
+      }
+
+      finalSite = site || linkedQuote.site;
+    }
+
     const totals = calculateInvoiceTotals(items, discount, taxEnabled, taxRate);
     const invoiceNumber = await generateNextNumber(Invoice, 'INV', 'invoiceNumber');
 
     const invoice = await Invoice.create({
       invoiceNumber,
       party,
-      site,
+      site: finalSite,
       quotation,
       invoiceDate: invoiceDate || new Date(),
       dueDate,
@@ -161,6 +191,17 @@ const addPayment = async (req, res) => {
       return res.status(404).json({ message: 'Invoice not found' });
     }
 
+    if (invoice.status === 'cancelled') {
+      return res.status(400).json({ message: 'Cannot record payment on a cancelled invoice.' });
+    }
+
+    // Financial Edge Case: Prevent overpaying more than invoice balance
+    if (numAmount > invoice.balanceAmount) {
+      return res.status(400).json({
+        message: `Payment amount (₹${numAmount.toLocaleString('en-IN')}) exceeds remaining invoice balance of ₹${invoice.balanceAmount.toLocaleString('en-IN')}. Overpayment is prevented.`,
+      });
+    }
+
     const paymentIndex = (invoice.payments?.length || 0) + 1;
     const paymentNumber = `PAY-${invoice.invoiceNumber}-${String(paymentIndex).padStart(2, '0')}`;
 
@@ -203,6 +244,101 @@ const addPayment = async (req, res) => {
   }
 };
 
+// Edit / update existing payment on invoice
+const updatePayment = async (req, res) => {
+  try {
+    const { id, paymentId } = req.params;
+    const { amount, date, paymentMode, referenceNumber, notes } = req.body;
+
+    const invoice = await Invoice.findById(id);
+    if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+
+    const pay = invoice.payments.id(paymentId);
+    if (!pay) return res.status(404).json({ message: 'Payment record not found' });
+
+    if (amount !== undefined) {
+      const newAmt = Number(amount);
+      if (!newAmt || newAmt <= 0) return res.status(400).json({ message: 'Valid payment amount is required' });
+
+      // Check against total balance excluding this payment
+      const otherPayments = invoice.payments.filter((p) => p._id.toString() !== paymentId);
+      const otherPaid = otherPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      if (otherPaid + newAmt > invoice.totalAmount) {
+        return res.status(400).json({
+          message: `Updated payment exceeds total invoice amount of ₹${invoice.totalAmount}`,
+        });
+      }
+      pay.amount = newAmt;
+    }
+
+    if (date) pay.date = date;
+    if (paymentMode) pay.paymentMode = paymentMode;
+    if (referenceNumber !== undefined) pay.referenceNumber = referenceNumber;
+    if (notes !== undefined) pay.notes = notes;
+
+    const totalPaid = invoice.payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    invoice.paidAmount = Math.round(totalPaid * 100) / 100;
+    invoice.balanceAmount = Math.max(0, Math.round((invoice.totalAmount - invoice.paidAmount) * 100) / 100);
+    invoice.paymentStatus = invoice.balanceAmount <= 0 ? 'paid' : invoice.paidAmount > 0 ? 'partially_paid' : 'unpaid';
+
+    await invoice.save();
+    const updated = await Invoice.findById(id).populate('party').populate('site').populate('quotation');
+    res.status(200).json({ message: 'Payment updated successfully', invoice: updated });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Delete / reverse payment on invoice
+const deletePayment = async (req, res) => {
+  try {
+    const { id, paymentId } = req.params;
+    const invoice = await Invoice.findById(id);
+    if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+
+    invoice.payments.pull({ _id: paymentId });
+
+    const totalPaid = invoice.payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    invoice.paidAmount = Math.round(totalPaid * 100) / 100;
+    invoice.balanceAmount = Math.max(0, Math.round((invoice.totalAmount - invoice.paidAmount) * 100) / 100);
+    invoice.paymentStatus = invoice.balanceAmount <= 0 ? 'paid' : invoice.paidAmount > 0 ? 'partially_paid' : 'unpaid';
+
+    await invoice.save();
+    const updated = await Invoice.findById(id).populate('party').populate('site').populate('quotation');
+    res.status(200).json({ message: 'Payment deleted/reversed successfully', invoice: updated });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Cancel an invoice (voids debit obligations & frees quotation)
+const cancelInvoice = async (req, res) => {
+  try {
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) {
+      return res.status(404).json({ message: 'Invoice not found' });
+    }
+    if (invoice.status === 'cancelled') {
+      return res.status(400).json({ message: 'Invoice is already cancelled' });
+    }
+
+    invoice.status = 'cancelled';
+    await invoice.save();
+
+    const updated = await Invoice.findById(invoice._id)
+      .populate('party')
+      .populate('site')
+      .populate('quotation');
+
+    res.status(200).json({
+      message: 'Invoice cancelled successfully',
+      invoice: updated,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Statement of Account / Ledger by Party
 const getStatementByParty = async (req, res) => {
   try {
@@ -222,6 +358,9 @@ const getStatementByParty = async (req, res) => {
     const paymentsList = [];
 
     invoices.forEach((inv) => {
+      // Financial Edge Case: Cancelled invoices have 0 active debit or ledger impact
+      if (inv.status === 'cancelled') return;
+
       totalBilled += inv.totalAmount;
       totalPaid += inv.paidAmount;
 
@@ -322,6 +461,9 @@ module.exports = {
   getInvoiceById,
   createInvoice,
   addPayment,
+  updatePayment,
+  deletePayment,
+  cancelInvoice,
   getStatementByParty,
   updateInvoice,
   deleteInvoice,
