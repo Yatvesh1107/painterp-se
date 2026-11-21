@@ -102,6 +102,7 @@ const createInvoice = async (req, res) => {
       discount,
       taxEnabled,
       taxRate,
+      terms,
       notes,
     } = req.body;
 
@@ -129,6 +130,7 @@ const createInvoice = async (req, res) => {
       paidAmount: 0,
       balanceAmount: totals.totalAmount,
       paymentStatus: 'unpaid',
+      terms,
       notes,
       createdBy: req.account?._id,
     });
@@ -260,7 +262,7 @@ const getStatementByParty = async (req, res) => {
 
 const updateInvoice = async (req, res) => {
   try {
-    const { items, discount, taxEnabled, taxRate, dueDate, notes, status } = req.body;
+    const { items, discount, taxEnabled, taxRate, dueDate, terms, notes, status } = req.body;
 
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) {
@@ -278,7 +280,8 @@ const updateInvoice = async (req, res) => {
     invoice.totalAmount = totals.totalAmount;
     invoice.balanceAmount = Math.max(0, Math.round((totals.totalAmount - invoice.paidAmount) * 100) / 100);
     if (dueDate) invoice.dueDate = dueDate;
-    if (notes) invoice.notes = notes;
+    if (terms !== undefined) invoice.terms = terms;
+    if (notes !== undefined) invoice.notes = notes;
     if (status) invoice.status = status;
 
     if (invoice.balanceAmount <= 0) {

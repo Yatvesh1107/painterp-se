@@ -6,6 +6,7 @@ const serviceRoutes = require('./service.routes');
 const quotationRoutes = require('./quotation.routes');
 const siteRoutes = require('./site.routes');
 const invoiceRoutes = require('./invoice.routes');
+const settingsRoutes = require('./settings.routes');
 
 const router = express.Router();
 
@@ -20,5 +21,6 @@ router.use('/services', serviceRoutes);
 router.use('/quotations', quotationRoutes);
 router.use('/sites', siteRoutes);
 router.use('/invoices', invoiceRoutes);
+router.use('/settings', settingsRoutes);
 
 module.exports = router;

@@ -102,8 +102,7 @@ const quotationSchema = new mongoose.Schema(
     },
     terms: {
       type: String,
-      default:
-        '1. 50% advance along with work order.\n2. 40% running payment during work progress.\n3. 10% balance upon final completion.\n4. Quotation valid for 30 days.',
+      default: '',
     },
     status: {
       type: String,
