@@ -5,8 +5,8 @@ const getServices = async (req, res) => {
     const { category, search } = req.query;
     let query = { isActive: true };
 
-    if (category) {
-      query.category = category;
+    if (category && category !== 'All') {
+      query.category = { $regex: `^${category}$`, $options: 'i' };
     }
 
     if (search) {
