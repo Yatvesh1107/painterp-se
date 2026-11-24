@@ -2,18 +2,43 @@ const Service = require('../models/service.model');
 
 const getServices = async (req, res) => {
   try {
-    const { category, search } = req.query;
+    const { category, search, page, limit } = req.query;
     let query = { isActive: true };
 
     if (category && category !== 'All') {
       query.category = { $regex: `^${category}$`, $options: 'i' };
     }
 
-    if (search) {
+    if (search && search.trim()) {
+      const s = search.trim();
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
+        { name: { $regex: s, $options: 'i' } },
+        { description: { $regex: s, $options: 'i' } },
       ];
+    }
+
+    if (page !== undefined) {
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.max(1, parseInt(limit, 10) || 10);
+      const total = await Service.countDocuments(query);
+      const totalPages = Math.ceil(total / limitNum) || 1;
+
+      const services = await Service.find(query)
+        .sort({ category: 1, name: 1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum);
+
+      return res.status(200).json({
+        data: services,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1,
+        },
+      });
     }
 
     const services = await Service.find(query).sort({ category: 1, name: 1 });

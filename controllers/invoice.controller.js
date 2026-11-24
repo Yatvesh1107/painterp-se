@@ -55,12 +55,54 @@ const calculateInvoiceTotals = (items = [], discount = 0, taxEnabled = false, ta
 
 const getInvoices = async (req, res) => {
   try {
-    const { partyId, siteId, paymentStatus } = req.query;
+    const { partyId, siteId, paymentStatus, status, search, page, limit } = req.query;
     let query = {};
 
     if (partyId) query.party = partyId;
     if (siteId) query.site = siteId;
-    if (paymentStatus) query.paymentStatus = paymentStatus;
+    if (paymentStatus && paymentStatus !== 'all') query.paymentStatus = paymentStatus;
+    if (status && status !== 'all') query.status = status;
+
+    if (search && search.trim()) {
+      const s = search.trim();
+      const [matchingParties, matchingSites] = await Promise.all([
+        Party.find({ name: { $regex: s, $options: 'i' } }).select('_id'),
+        Site.find({ name: { $regex: s, $options: 'i' } }).select('_id'),
+      ]);
+
+      query.$or = [
+        { invoiceNumber: { $regex: s, $options: 'i' } },
+        { party: { $in: matchingParties.map((p) => p._id) } },
+        { site: { $in: matchingSites.map((st) => st._id) } },
+      ];
+    }
+
+    if (page !== undefined) {
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.max(1, parseInt(limit, 10) || 10);
+      const total = await Invoice.countDocuments(query);
+      const totalPages = Math.ceil(total / limitNum) || 1;
+
+      const invoices = await Invoice.find(query)
+        .populate('party', 'name phone email address')
+        .populate('site', 'name siteNumber')
+        .populate('quotation', 'quotationNumber')
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum);
+
+      return res.status(200).json({
+        data: invoices,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1,
+        },
+      });
+    }
 
     const invoices = await Invoice.find(query)
       .populate('party', 'name phone email address')

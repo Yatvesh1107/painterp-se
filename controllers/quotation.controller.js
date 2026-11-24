@@ -51,17 +51,24 @@ const calculateTotals = (items = [], discount = 0, taxEnabled = false, taxRate =
 
 const getQuotations = async (req, res) => {
   try {
-    const { status, partyId, siteId } = req.query;
+    const { status, partyId, siteId, search, page, limit } = req.query;
     let query = {};
 
-    if (status) query.status = status;
+    if (status && status !== 'all') query.status = status;
     if (partyId) query.party = partyId;
     if (siteId) query.site = siteId;
 
-    const quotations = await Quotation.find(query)
-      .populate('party', 'name phone email address')
-      .populate('site', 'name siteNumber address status')
-      .sort({ createdAt: -1 });
+    if (search && search.trim()) {
+      const s = search.trim();
+      const matchingParties = await Party.find({ name: { $regex: s, $options: 'i' } }).select('_id');
+      const partyIds = matchingParties.map((p) => p._id);
+
+      query.$or = [
+        { quotationNumber: { $regex: s, $options: 'i' } },
+        { title: { $regex: s, $options: 'i' } },
+        { party: { $in: partyIds } },
+      ];
+    }
 
     // Check which quotations already have invoices created
     const Invoice = require('../models/invoice.model');
@@ -73,14 +80,46 @@ const getQuotations = async (req, res) => {
       }
     });
 
-    const enriched = quotations.map((q) => {
-      const plain = q.toObject();
-      plain.isInvoiced = invoicedMap.has(q._id.toString());
-      plain.invoiceNumber = invoicedMap.get(q._id.toString()) || null;
-      return plain;
-    });
+    const enrichQuotations = (items) =>
+      items.map((q) => {
+        const plain = q.toObject();
+        plain.isInvoiced = invoicedMap.has(q._id.toString());
+        plain.invoiceNumber = invoicedMap.get(q._id.toString()) || null;
+        return plain;
+      });
 
-    res.status(200).json(enriched);
+    if (page !== undefined) {
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.max(1, parseInt(limit, 10) || 10);
+      const total = await Quotation.countDocuments(query);
+      const totalPages = Math.ceil(total / limitNum) || 1;
+
+      const quotations = await Quotation.find(query)
+        .populate('party', 'name phone email address')
+        .populate('site', 'name siteNumber address status')
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum);
+
+      return res.status(200).json({
+        data: enrichQuotations(quotations),
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1,
+        },
+      });
+    }
+
+    const quotations = await Quotation.find(query)
+      .populate('party', 'name phone email address')
+      .populate('site', 'name siteNumber address status')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json(enrichQuotations(quotations));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

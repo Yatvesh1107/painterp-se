@@ -2,15 +2,42 @@ const Party = require('../models/party.model');
 
 const getParties = async (req, res) => {
   try {
-    const { search } = req.query;
+    const { search, page, limit } = req.query;
     let query = { isActive: true };
 
-    if (search) {
+    if (search && search.trim()) {
+      const s = search.trim();
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
+        { name: { $regex: s, $options: 'i' } },
+        { phone: { $regex: s, $options: 'i' } },
+        { email: { $regex: s, $options: 'i' } },
+        { address: { $regex: s, $options: 'i' } },
+        { gstNumber: { $regex: s, $options: 'i' } },
       ];
+    }
+
+    if (page !== undefined) {
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.max(1, parseInt(limit, 10) || 10);
+      const total = await Party.countDocuments(query);
+      const totalPages = Math.ceil(total / limitNum) || 1;
+
+      const parties = await Party.find(query)
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum);
+
+      return res.status(200).json({
+        data: parties,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1,
+        },
+      });
     }
 
     const parties = await Party.find(query).sort({ createdAt: -1 });
