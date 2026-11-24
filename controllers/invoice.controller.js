@@ -1,5 +1,6 @@
 const Invoice = require('../models/invoice.model');
 const Party = require('../models/party.model');
+const Site = require('../models/site.model');
 const { generateNextNumber } = require('../utils/generateNumber');
 
 // Calculate invoice subtotal, tax, and total (matching Quotation calculation)
@@ -339,33 +340,46 @@ const cancelInvoice = async (req, res) => {
   }
 };
 
-// Statement of Account / Ledger by Party
+// Statement of Account / Ledger by Party (with optional siteId filter)
 const getStatementByParty = async (req, res) => {
   try {
     const { partyId } = req.params;
+    const { siteId } = req.query;
 
     const party = await Party.findById(partyId);
     if (!party) {
       return res.status(404).json({ message: 'Party not found' });
     }
 
-    const invoices = await Invoice.find({ party: partyId })
-      .populate('site', 'name siteNumber')
+    // Fetch all sites belonging to this client/party
+    const sites = await Site.find({ party: partyId }).sort({ createdAt: -1 });
+
+    // Build invoice query
+    const invoiceQuery = { party: partyId };
+    if (siteId && siteId !== 'all') {
+      invoiceQuery.site = siteId;
+    }
+
+    const invoices = await Invoice.find(invoiceQuery)
+      .populate('site', 'name siteNumber address status')
       .sort({ invoiceDate: 1 });
 
     let totalBilled = 0;
     let totalPaid = 0;
     const paymentsList = [];
+    const invoiceBreakdown = [];
 
     invoices.forEach((inv) => {
       // Financial Edge Case: Cancelled invoices have 0 active debit or ledger impact
-      if (inv.status === 'cancelled') return;
+      const isCancelled = inv.status === 'cancelled';
+      if (!isCancelled) {
+        totalBilled += inv.totalAmount;
+        totalPaid += inv.paidAmount;
+      }
 
-      totalBilled += inv.totalAmount;
-      totalPaid += inv.paidAmount;
-
-      inv.payments.forEach((pay) => {
-        paymentsList.push({
+      const invPayments = [];
+      (inv.payments || []).forEach((pay) => {
+        const payObj = {
           invoiceId: inv._id,
           invoiceNumber: inv.invoiceNumber,
           paymentNumber: pay.paymentNumber,
@@ -374,7 +388,28 @@ const getStatementByParty = async (req, res) => {
           paymentMode: pay.paymentMode,
           referenceNumber: pay.referenceNumber,
           notes: pay.notes,
-        });
+        };
+        invPayments.push(payObj);
+        if (!isCancelled) {
+          paymentsList.push(payObj);
+        }
+      });
+
+      invoiceBreakdown.push({
+        _id: inv._id,
+        invoiceNumber: inv.invoiceNumber,
+        invoiceDate: inv.invoiceDate,
+        dueDate: inv.dueDate,
+        site: inv.site,
+        status: inv.status,
+        paymentStatus: inv.paymentStatus,
+        subtotal: inv.subtotal,
+        discount: inv.discount,
+        taxAmount: inv.taxAmount,
+        totalAmount: inv.totalAmount,
+        paidAmount: inv.paidAmount,
+        balanceAmount: inv.balanceAmount,
+        payments: invPayments,
       });
     });
 
@@ -383,16 +418,24 @@ const getStatementByParty = async (req, res) => {
 
     const totalOutstanding = Math.max(0, Math.round((totalBilled - totalPaid) * 100) / 100);
 
+    let selectedSite = null;
+    if (siteId && siteId !== 'all') {
+      selectedSite = sites.find((s) => s._id.toString() === siteId.toString()) || null;
+    }
+
     res.status(200).json({
       party,
+      sites,
+      selectedSite,
       summary: {
-        totalInvoices: invoices.length,
+        totalInvoices: invoices.filter((i) => i.status !== 'cancelled').length,
         totalBilled: Math.round(totalBilled * 100) / 100,
         totalPaid: Math.round(totalPaid * 100) / 100,
         totalOutstanding,
       },
       invoices,
       payments: paymentsList,
+      invoiceBreakdown,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
