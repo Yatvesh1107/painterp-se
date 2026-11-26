@@ -1,8 +1,8 @@
+const mongoose = require('mongoose');
 const Site = require('../models/site.model');
 const SiteExpense = require('../models/siteExpense.model');
 const Invoice = require('../models/invoice.model');
 const { generateNextNumber } = require('../utils/generateNumber');
-
 const Party = require('../models/party.model');
 
 const getSites = async (req, res) => {
@@ -25,11 +25,15 @@ const getSites = async (req, res) => {
     }
 
     const attachFinancials = async (siteDocs) => {
-      const siteIds = siteDocs.map((s) => s._id);
+      const siteObjectIds = siteDocs.map((s) =>
+        s._id instanceof mongoose.Types.ObjectId ? s._id : new mongoose.Types.ObjectId(s._id)
+      );
+      const siteIdStrings = siteDocs.map((s) => s._id.toString());
+      const allSiteIdMatches = [...new Set([...siteObjectIds, ...siteIdStrings])];
 
       // Aggregate expenses per site strictly
       const expenseAgg = await SiteExpense.aggregate([
-        { $match: { site: { $in: siteIds } } },
+        { $match: { site: { $in: allSiteIdMatches } } },
         {
           $group: {
             _id: '$site',
@@ -52,7 +56,7 @@ const getSites = async (req, res) => {
 
       // Aggregate invoiced revenue per site strictly (excluding cancelled)
       const invoiceAgg = await Invoice.aggregate([
-        { $match: { site: { $in: siteIds }, status: { $ne: 'cancelled' } } },
+        { $match: { site: { $in: allSiteIdMatches }, status: { $ne: 'cancelled' } } },
         {
           $group: {
             _id: '$site',
