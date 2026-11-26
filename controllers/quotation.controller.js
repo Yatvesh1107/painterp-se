@@ -211,24 +211,25 @@ const updateQuotation = async (req, res) => {
       status,
     } = req.body;
 
-    const totals = calculateTotals(items, discount, taxEnabled, taxRate);
-
-    const updateData = {
-      title,
-      party,
-      date,
-      validUntil,
-      items: totals.items,
-      subtotal: totals.subtotal,
-      discount: totals.discount,
-      taxEnabled: totals.taxEnabled,
-      taxRate: totals.taxRate,
-      taxAmount: totals.taxAmount,
-      totalAmount: totals.totalAmount,
-      terms,
-      status,
-    };
+    const updateData = {};
+    if (title !== undefined) updateData.title = title;
+    if (party !== undefined) updateData.party = party;
+    if (date !== undefined) updateData.date = date;
+    if (validUntil !== undefined) updateData.validUntil = validUntil;
+    if (terms !== undefined) updateData.terms = terms;
+    if (status !== undefined) updateData.status = status;
     if (site) updateData.site = site;
+
+    if (items !== undefined) {
+      const totals = calculateTotals(items, discount, taxEnabled, taxRate);
+      updateData.items = totals.items;
+      updateData.subtotal = totals.subtotal;
+      updateData.discount = totals.discount;
+      updateData.taxEnabled = totals.taxEnabled;
+      updateData.taxRate = totals.taxRate;
+      updateData.taxAmount = totals.taxAmount;
+      updateData.totalAmount = totals.totalAmount;
+    }
 
     const quotation = await Quotation.findByIdAndUpdate(
       req.params.id,
@@ -243,6 +244,42 @@ const updateQuotation = async (req, res) => {
     }
 
     res.status(200).json(quotation);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Update status (draft, sent, approved, rejected)
+const updateQuotationStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+    const validStatuses = ['draft', 'sent', 'approved', 'rejected'];
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: `Invalid status: ${status}. Must be one of: ${validStatuses.join(', ')}` });
+    }
+
+    // If approving, run the dedicated flow that links / creates the site
+    if (status === 'approved') {
+      return approveQuotation(req, res);
+    }
+
+    const quotation = await Quotation.findByIdAndUpdate(
+      req.params.id,
+      { status },
+      { new: true }
+    )
+      .populate('party')
+      .populate('site');
+
+    if (!quotation) {
+      return res.status(404).json({ message: 'Quotation not found' });
+    }
+
+    res.status(200).json({
+      message: `Quotation status updated to ${status}`,
+      quotation,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -317,5 +354,6 @@ module.exports = {
   createQuotation,
   updateQuotation,
   approveQuotation,
+  updateQuotationStatus,
   deleteQuotation,
 };
