@@ -16,6 +16,32 @@ app.use(
 
 app.use(express.json());
 
+// Root health & status endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'PaintErp API is running', health: '/api/health' });
+});
+
+// Auto-prefix /api if requests come in without it (e.g. from misconfigured VITE_API_URL)
+app.use((req, res, next) => {
+  if (req.url.startsWith('/api')) {
+    return next();
+  }
+  const knownPrefixes = [
+    '/auth',
+    '/parties',
+    '/quotations',
+    '/invoices',
+    '/sites',
+    '/services',
+    '/settings',
+    '/health',
+  ];
+  if (knownPrefixes.some((prefix) => req.url.startsWith(prefix))) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
+
 app.use('/api', routes);
 
 app.use((req, res) => {
