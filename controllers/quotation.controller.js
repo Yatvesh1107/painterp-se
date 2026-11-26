@@ -70,21 +70,30 @@ const getQuotations = async (req, res) => {
       ];
     }
 
-    // Check which quotations already have invoices created
+    // Check which quotations already have invoices created (excluding cancelled invoices)
     const Invoice = require('../models/invoice.model');
-    const existingInvoices = await Invoice.find({ quotation: { $ne: null } }).select('quotation invoiceNumber');
+    const existingInvoices = await Invoice.find({
+      quotation: { $ne: null },
+      status: { $ne: 'cancelled' },
+    }).select('_id quotation invoiceNumber');
+
     const invoicedMap = new Map();
     existingInvoices.forEach((inv) => {
       if (inv.quotation) {
-        invoicedMap.set(inv.quotation.toString(), inv.invoiceNumber);
+        invoicedMap.set(inv.quotation.toString(), {
+          invoiceId: inv._id,
+          invoiceNumber: inv.invoiceNumber,
+        });
       }
     });
 
     const enrichQuotations = (items) =>
       items.map((q) => {
         const plain = q.toObject();
-        plain.isInvoiced = invoicedMap.has(q._id.toString());
-        plain.invoiceNumber = invoicedMap.get(q._id.toString()) || null;
+        const invInfo = invoicedMap.get(q._id.toString());
+        plain.isInvoiced = Boolean(invInfo);
+        plain.invoiceId = invInfo ? invInfo.invoiceId : null;
+        plain.invoiceNumber = invInfo ? invInfo.invoiceNumber : null;
         return plain;
       });
 
