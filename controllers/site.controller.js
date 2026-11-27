@@ -86,9 +86,15 @@ const getSites = async (req, res) => {
           invoiceCount: 0,
         };
 
-        plain.totalExpenses = exp.totalExpenses;
+        const subPaid = plain.subcontractor?.isAssigned ? (Number(plain.subcontractor?.totalPaid) || 0) : 0;
+        const totalExpenses = (exp.totalExpenses || 0) + subPaid;
+        const labourCost = (exp.labourCost || 0) + subPaid;
+
+        plain.totalExpenses = totalExpenses;
         plain.materialCost = exp.materialCost;
-        plain.labourCost = exp.labourCost;
+        plain.labourCost = labourCost;
+        plain.directLabourCost = exp.labourCost || 0;
+        plain.subcontractorPaid = subPaid;
         plain.expenseCount = exp.expenseCount;
 
         plain.totalInvoiced = inv.totalInvoiced;
@@ -102,9 +108,9 @@ const getSites = async (req, res) => {
             : plain.quotation?.totalAmount || plain.estimatedCost || 0;
 
         plain.revenue = revenue;
-        plain.netProfit = revenue - exp.totalExpenses;
+        plain.netProfit = revenue - totalExpenses;
         plain.profitMargin =
-          revenue > 0 ? Math.round(((revenue - exp.totalExpenses) / revenue) * 1000) / 10 : 0;
+          revenue > 0 ? Math.round(((revenue - totalExpenses) / revenue) * 1000) / 10 : 0;
 
         return plain;
       });
@@ -229,10 +235,254 @@ const deleteSite = async (req, res) => {
   }
 };
 
+const assignOrUpdateSubcontractor = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      phone,
+      subcontractorRef,
+      workDescription,
+      agreedAmount,
+      startDate,
+      targetCompletionDate,
+      status,
+      notes,
+    } = req.body;
+
+    const site = await Site.findById(id);
+    if (!site) {
+      return res.status(404).json({ message: 'Site not found' });
+    }
+
+    if (!site.subcontractor) {
+      site.subcontractor = {
+        isAssigned: true,
+        payments: [],
+        totalPaid: 0,
+        balanceAmount: 0,
+      };
+    }
+
+    site.subcontractor.isAssigned = true;
+    if (subcontractorRef !== undefined) site.subcontractor.subcontractorRef = subcontractorRef || null;
+    if (name !== undefined) site.subcontractor.name = name;
+    if (phone !== undefined) site.subcontractor.phone = phone;
+    if (workDescription !== undefined) site.subcontractor.workDescription = workDescription;
+    if (agreedAmount !== undefined) site.subcontractor.agreedAmount = Math.max(0, Number(agreedAmount) || 0);
+    if (startDate !== undefined) site.subcontractor.startDate = startDate;
+    if (targetCompletionDate !== undefined) site.subcontractor.targetCompletionDate = targetCompletionDate;
+    if (status !== undefined) site.subcontractor.status = status;
+    if (notes !== undefined) site.subcontractor.notes = notes;
+
+    // Recalculate totals
+    const totalPaid = (site.subcontractor.payments || []).reduce((acc, p) => acc + (p.amount || 0), 0);
+    site.subcontractor.totalPaid = Math.round(totalPaid * 100) / 100;
+    site.subcontractor.balanceAmount = Math.max(
+      0,
+      Math.round(((site.subcontractor.agreedAmount || 0) - site.subcontractor.totalPaid) * 100) / 100
+    );
+
+    if (site.subcontractor.balanceAmount === 0 && site.subcontractor.totalPaid > 0) {
+      site.subcontractor.status = 'completed';
+    }
+
+    await site.save();
+
+    const updated = await Site.findById(id).populate('party').populate('quotation');
+    res.status(200).json(updated);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const addSubcontractorPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, date, paymentMode, referenceNumber, notes } = req.body;
+
+    if (!amount || Number(amount) <= 0) {
+      return res.status(400).json({ message: 'Valid payment amount is required' });
+    }
+
+    const site = await Site.findById(id);
+    if (!site) {
+      return res.status(404).json({ message: 'Site not found' });
+    }
+
+    if (!site.subcontractor || !site.subcontractor.isAssigned) {
+      return res.status(400).json({ message: 'No subcontractor assigned to this site' });
+    }
+
+    const paymentIndex = (site.subcontractor.payments || []).length + 1;
+    const paymentNumber = `SCP-${String(paymentIndex).padStart(3, '0')}`;
+
+    const newPayment = {
+      paymentNumber,
+      date: date || new Date(),
+      amount: Math.round(Number(amount) * 100) / 100,
+      paymentMode: paymentMode || 'cash',
+      referenceNumber: referenceNumber || '',
+      notes: notes || '',
+      recordedBy: req.account?._id,
+    };
+
+    site.subcontractor.payments.push(newPayment);
+
+    // Recalculate totals
+    const totalPaid = (site.subcontractor.payments || []).reduce((acc, p) => acc + (p.amount || 0), 0);
+    site.subcontractor.totalPaid = Math.round(totalPaid * 100) / 100;
+    site.subcontractor.balanceAmount = Math.max(
+      0,
+      Math.round(((site.subcontractor.agreedAmount || 0) - site.subcontractor.totalPaid) * 100) / 100
+    );
+
+    if (site.subcontractor.balanceAmount === 0 && site.subcontractor.totalPaid > 0) {
+      site.subcontractor.status = 'completed';
+    }
+
+    await site.save();
+
+    const updated = await Site.findById(id).populate('party').populate('quotation');
+    res.status(201).json(updated);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const deleteSubcontractorPayment = async (req, res) => {
+  try {
+    const { id, paymentId } = req.params;
+
+    const site = await Site.findById(id);
+    if (!site) {
+      return res.status(404).json({ message: 'Site not found' });
+    }
+
+    if (!site.subcontractor) {
+      return res.status(400).json({ message: 'No subcontractor data on this site' });
+    }
+
+    site.subcontractor.payments = (site.subcontractor.payments || []).filter(
+      (p) => p._id.toString() !== paymentId.toString()
+    );
+
+    // Recalculate totals
+    const totalPaid = (site.subcontractor.payments || []).reduce((acc, p) => acc + (p.amount || 0), 0);
+    site.subcontractor.totalPaid = Math.round(totalPaid * 100) / 100;
+    site.subcontractor.balanceAmount = Math.max(
+      0,
+      Math.round(((site.subcontractor.agreedAmount || 0) - site.subcontractor.totalPaid) * 100) / 100
+    );
+
+    await site.save();
+
+    const updated = await Site.findById(id).populate('party').populate('quotation');
+    res.status(200).json(updated);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const removeSubcontractor = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const site = await Site.findById(id);
+    if (!site) {
+      return res.status(404).json({ message: 'Site not found' });
+    }
+
+    site.subcontractor = {
+      isAssigned: false,
+      name: '',
+      phone: '',
+      workDescription: '',
+      agreedAmount: 0,
+      status: 'active',
+      notes: '',
+      payments: [],
+      totalPaid: 0,
+      balanceAmount: 0,
+    };
+
+    await site.save();
+
+    const updated = await Site.findById(id).populate('party').populate('quotation');
+    res.status(200).json(updated);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const getSubcontractors = async (req, res) => {
+  try {
+    const { status, search } = req.query;
+    let query = { 'subcontractor.isAssigned': true };
+
+    if (status && status !== 'all') {
+      if (status === 'active') {
+        query['subcontractor.status'] = 'active';
+      } else if (status === 'completed') {
+        query['subcontractor.status'] = 'completed';
+      } else if (status === 'pending_due') {
+        query['subcontractor.balanceAmount'] = { $gt: 0 };
+      }
+    }
+
+    if (search && search.trim()) {
+      const s = search.trim();
+      query.$or = [
+        { 'subcontractor.name': { $regex: s, $options: 'i' } },
+        { 'subcontractor.phone': { $regex: s, $options: 'i' } },
+        { name: { $regex: s, $options: 'i' } },
+        { siteNumber: { $regex: s, $options: 'i' } },
+      ];
+    }
+
+    const sites = await Site.find(query)
+      .populate('party', 'name phone')
+      .sort({ updatedAt: -1 });
+
+    let totalAgreed = 0;
+    let totalPaid = 0;
+    let totalBalanceDue = 0;
+
+    sites.forEach((site) => {
+      totalAgreed += Number(site.subcontractor?.agreedAmount) || 0;
+      totalPaid += Number(site.subcontractor?.totalPaid) || 0;
+      totalBalanceDue += Number(site.subcontractor?.balanceAmount) || 0;
+    });
+
+    res.status(200).json({
+      summary: {
+        totalContracts: sites.length,
+        totalAgreed: Math.round(totalAgreed * 100) / 100,
+        totalPaid: Math.round(totalPaid * 100) / 100,
+        totalBalanceDue: Math.round(totalBalanceDue * 100) / 100,
+      },
+      contracts: sites.map((s) => ({
+        siteId: s._id,
+        siteNumber: s.siteNumber,
+        siteName: s.name,
+        party: s.party,
+        subcontractor: s.subcontractor,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getSites,
   getSiteById,
   createSite,
   updateSite,
   deleteSite,
+  assignOrUpdateSubcontractor,
+  addSubcontractorPayment,
+  deleteSubcontractorPayment,
+  removeSubcontractor,
+  getSubcontractors,
 };

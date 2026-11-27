@@ -147,6 +147,16 @@ const getSiteProfitLoss = async (req, res) => {
       }
     });
 
+    // Factor in subcontractor payments as labour cost for the site
+    const directLabourCost = totalLabourCost;
+    const subcontractorPaid = site.subcontractor?.isAssigned ? (Number(site.subcontractor?.totalPaid) || 0) : 0;
+    const subcontractorAgreed = site.subcontractor?.isAssigned ? (Number(site.subcontractor?.agreedAmount) || 0) : 0;
+    const subcontractorBalance = site.subcontractor?.isAssigned ? (Number(site.subcontractor?.balanceAmount) || 0) : 0;
+
+    // Subcontractor payments are project labour outflows, so add to total labour & total expenses
+    totalLabourCost += subcontractorPaid;
+    totalExpenses += subcontractorPaid;
+
     // Revenue base to evaluate profit: if invoiced exists, use totalInvoiced, else use estimatedProjectRevenue
     const revenueBasis = totalInvoiced > 0 ? totalInvoiced : estimatedProjectRevenue;
     const netProfit = Math.round((revenueBasis - totalExpenses) * 100) / 100;
@@ -171,10 +181,15 @@ const getSiteProfitLoss = async (req, res) => {
         totalExpenses,
         totalMaterialCost,
         totalLabourCost,
+        directLabourCost,
+        subcontractorPaid,
+        subcontractorAgreed,
+        subcontractorBalance,
         totalTransportCost,
         totalOtherCost,
         expensesCount: expenses.length,
         expenses,
+        subcontractorPayments: site.subcontractor?.isAssigned ? (site.subcontractor.payments || []) : [],
       },
       pnl: {
         revenueBasis,

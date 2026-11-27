@@ -7,6 +7,7 @@ const quotationRoutes = require('./quotation.routes');
 const siteRoutes = require('./site.routes');
 const invoiceRoutes = require('./invoice.routes');
 const settingsRoutes = require('./settings.routes');
+const subcontractorRoutes = require('./subcontractor.routes');
 
 const router = express.Router();
 
@@ -22,5 +23,6 @@ router.use('/quotations', quotationRoutes);
 router.use('/sites', siteRoutes);
 router.use('/invoices', invoiceRoutes);
 router.use('/settings', settingsRoutes);
+router.use('/subcontractors', subcontractorRoutes);
 
 module.exports = router;

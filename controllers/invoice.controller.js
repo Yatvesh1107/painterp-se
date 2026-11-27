@@ -382,11 +382,11 @@ const cancelInvoice = async (req, res) => {
   }
 };
 
-// Statement of Account / Ledger by Party (with optional siteId filter)
+// Statement of Account / Ledger by Party (with optional siteId & invoiceId filter)
 const getStatementByParty = async (req, res) => {
   try {
     const { partyId } = req.params;
-    const { siteId } = req.query;
+    const { siteId, invoiceId } = req.query;
 
     const party = await Party.findById(partyId);
     if (!party) {
@@ -396,15 +396,37 @@ const getStatementByParty = async (req, res) => {
     // Fetch all sites belonging to this client/party
     const sites = await Site.find({ party: partyId }).sort({ createdAt: -1 });
 
-    // Build invoice query
-    const invoiceQuery = { party: partyId };
+    // Build base invoice query for this party (and site, if filtered)
+    const baseQuery = { party: partyId };
     if (siteId && siteId !== 'all') {
-      invoiceQuery.site = siteId;
+      baseQuery.site = siteId;
     }
 
-    const invoices = await Invoice.find(invoiceQuery)
+    const allInvoices = await Invoice.find(baseQuery)
       .populate('site', 'name siteNumber address status')
       .sort({ invoiceDate: 1 });
+
+    // Available invoices list (for frontend filter tabs / dropdown)
+    const availableInvoices = allInvoices.map((inv) => ({
+      _id: inv._id,
+      invoiceNumber: inv.invoiceNumber,
+      invoiceDate: inv.invoiceDate,
+      totalAmount: inv.totalAmount,
+      paidAmount: inv.paidAmount,
+      balanceAmount: inv.balanceAmount,
+      paymentStatus: inv.paymentStatus,
+      status: inv.status,
+      site: inv.site,
+      itemsCount: (inv.items || []).length,
+    }));
+
+    // Filter by specific invoice if invoiceId requested
+    let invoices = allInvoices;
+    let selectedInvoice = null;
+    if (invoiceId && invoiceId !== 'all') {
+      invoices = allInvoices.filter((i) => i._id.toString() === invoiceId.toString());
+      selectedInvoice = availableInvoices.find((i) => i._id.toString() === invoiceId.toString()) || null;
+    }
 
     let totalBilled = 0;
     let totalPaid = 0;
@@ -451,6 +473,8 @@ const getStatementByParty = async (req, res) => {
         totalAmount: inv.totalAmount,
         paidAmount: inv.paidAmount,
         balanceAmount: inv.balanceAmount,
+        itemsCount: (inv.items || []).length,
+        notes: inv.notes,
         payments: invPayments,
       });
     });
@@ -469,6 +493,8 @@ const getStatementByParty = async (req, res) => {
       party,
       sites,
       selectedSite,
+      availableInvoices,
+      selectedInvoice,
       summary: {
         totalInvoices: invoices.filter((i) => i.status !== 'cancelled').length,
         totalBilled: Math.round(totalBilled * 100) / 100,
