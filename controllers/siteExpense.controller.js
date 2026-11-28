@@ -85,6 +85,67 @@ const getSiteExpenses = async (req, res) => {
   }
 };
 
+// Update a site expense
+const updateSiteExpense = async (req, res) => {
+  const uploadedImagePath = req.file ? `/uploads/challans/${req.file.filename}` : null;
+
+  try {
+    const { siteId, expenseId } = req.params;
+    const {
+      expenseType,
+      title,
+      vendorOrPerson,
+      amount,
+      date,
+      paymentMode,
+      billNumber,
+      challanNumber,
+      notes,
+      challanImage,
+    } = req.body;
+
+    const expense = await SiteExpense.findOne({ _id: expenseId, site: siteId });
+    if (!expense) {
+      if (uploadedImagePath) removeUploadedFile(uploadedImagePath);
+      return res.status(404).json({ message: 'Expense not found' });
+    }
+
+    if (!title || !amount) {
+      if (uploadedImagePath) removeUploadedFile(uploadedImagePath);
+      return res.status(400).json({ message: 'Title and amount are required' });
+    }
+
+    const previousImage = expense.challanImage;
+
+    expense.expenseType = expenseType || expense.expenseType;
+    expense.title = title;
+    expense.vendorOrPerson = vendorOrPerson ?? expense.vendorOrPerson;
+    expense.amount = Number(amount);
+    if (date) expense.date = date;
+    expense.paymentMode = paymentMode || expense.paymentMode;
+    expense.billNumber = billNumber ?? expense.billNumber;
+    expense.challanNumber = challanNumber ?? expense.challanNumber;
+    expense.notes = notes ?? expense.notes;
+
+    if (uploadedImagePath) {
+      expense.challanImage = uploadedImagePath;
+    } else if (challanImage === '') {
+      expense.challanImage = '';
+    }
+
+    await expense.save();
+
+    if (previousImage && (uploadedImagePath || challanImage === '')) {
+      removeUploadedFile(previousImage);
+    }
+
+    res.status(200).json(expense);
+  } catch (error) {
+    if (uploadedImagePath) removeUploadedFile(uploadedImagePath);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Delete a site expense
 const deleteSiteExpense = async (req, res) => {
   try {
@@ -226,6 +287,7 @@ const getSiteProfitLoss = async (req, res) => {
 
 module.exports = {
   addSiteExpense,
+  updateSiteExpense,
   getSiteExpenses,
   deleteSiteExpense,
   getSiteProfitLoss,

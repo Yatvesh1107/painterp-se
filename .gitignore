@@ -34,3 +34,6 @@ pids/
 *.pid
 *.seed
 *.pid.lock
+
+# Uploaded files (challans, QR codes)
+uploads/

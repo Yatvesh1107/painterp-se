@@ -13,6 +13,7 @@ const {
 } = require('../controllers/site.controller');
 const {
   addSiteExpense,
+  updateSiteExpense,
   getSiteExpenses,
   deleteSiteExpense,
   getSiteProfitLoss,
@@ -51,7 +52,10 @@ router
   .route('/:siteId/expenses')
   .get(getSiteExpenses)
   .post(uploadChallanImage, addSiteExpense);
-router.route('/:siteId/expenses/:expenseId').delete(deleteSiteExpense);
+router
+  .route('/:siteId/expenses/:expenseId')
+  .put(uploadChallanImage, updateSiteExpense)
+  .delete(deleteSiteExpense);
 router.route('/:siteId/profit-loss').get(getSiteProfitLoss);
 
 module.exports = router;
