@@ -36,6 +36,9 @@ app.use((req, res, next) => {
     '/settings',
     '/health',
     '/subcontractors',
+    '/labours',
+    '/attendance',
+    '/payouts',
   ];
   if (knownPrefixes.some((prefix) => req.url.startsWith(prefix))) {
     req.url = '/api' + req.url;

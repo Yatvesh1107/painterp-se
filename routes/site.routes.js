@@ -17,15 +17,22 @@ const {
   deleteSiteExpense,
   getSiteProfitLoss,
 } = require('../controllers/siteExpense.controller');
-const { protect } = require('../middlewares/auth.middleware');
+const { protect, authorize } = require('../middlewares/auth.middleware');
+const { ROLES } = require('../config/roles');
 
 const router = express.Router();
 
 router.use(protect);
 
+// Supervisors need read-only access to active sites list
+router.get('/', getSites);
+
+// All other site, subcontractor & expense operations are Admin-only
+router.use(authorize(ROLES.ADMIN));
+
 router.route('/subcontractors/overview').get(getSubcontractors);
 
-router.route('/').get(getSites).post(createSite);
+router.route('/').post(createSite);
 router.route('/:id').get(getSiteById).put(updateSite).delete(deleteSite);
 
 // Subcontractor & Lumpsum Installments routes

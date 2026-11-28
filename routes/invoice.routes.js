@@ -11,11 +11,12 @@ const {
   updateInvoice,
   deleteInvoice,
 } = require('../controllers/invoice.controller');
-const { protect } = require('../middlewares/auth.middleware');
+const { protect, authorize } = require('../middlewares/auth.middleware');
+const { ROLES } = require('../config/roles');
 
 const router = express.Router();
 
-router.use(protect);
+router.use(protect, authorize(ROLES.ADMIN));
 
 router.route('/').get(getInvoices).post(createInvoice);
 router.route('/:id').get(getInvoiceById).put(updateInvoice).delete(deleteInvoice);

@@ -6,11 +6,12 @@ const {
   updateParty,
   deleteParty,
 } = require('../controllers/party.controller');
-const { protect } = require('../middlewares/auth.middleware');
+const { protect, authorize } = require('../middlewares/auth.middleware');
+const { ROLES } = require('../config/roles');
 
 const router = express.Router();
 
-router.use(protect);
+router.use(protect, authorize(ROLES.ADMIN));
 
 router.route('/').get(getParties).post(createParty);
 router.route('/:id').get(getPartyById).put(updateParty).delete(deleteParty);

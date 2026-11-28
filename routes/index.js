@@ -8,6 +8,9 @@ const siteRoutes = require('./site.routes');
 const invoiceRoutes = require('./invoice.routes');
 const settingsRoutes = require('./settings.routes');
 const subcontractorRoutes = require('./subcontractor.routes');
+const labourRoutes = require('./labour.routes');
+const labourAttendanceRoutes = require('./labourAttendance.routes');
+const labourPayoutRoutes = require('./labourPayout.routes');
 
 const router = express.Router();
 
@@ -24,5 +27,8 @@ router.use('/sites', siteRoutes);
 router.use('/invoices', invoiceRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/subcontractors', subcontractorRoutes);
+router.use('/labours', labourRoutes);
+router.use('/attendance', labourAttendanceRoutes);
+router.use('/payouts', labourPayoutRoutes);
 
 module.exports = router;
