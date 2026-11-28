@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const routes = require('./routes');
@@ -15,6 +16,10 @@ app.use(
 );
 
 app.use(express.json());
+
+// Serve uploaded challan images statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Root health & status endpoint
 app.get('/', (req, res) => {

@@ -41,6 +41,14 @@ const siteExpenseSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    challanNumber: {
+      type: String,
+      trim: true,
+    },
+    challanImage: {
+      type: String,
+      trim: true,
+    },
     notes: {
       type: String,
       trim: true,

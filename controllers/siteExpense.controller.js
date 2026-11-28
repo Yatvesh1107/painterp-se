@@ -1,9 +1,19 @@
+const fs = require('fs');
+const path = require('path');
 const SiteExpense = require('../models/siteExpense.model');
 const Site = require('../models/site.model');
 const Invoice = require('../models/invoice.model');
 
+const removeUploadedFile = (relativeUrl) => {
+  if (!relativeUrl || !relativeUrl.startsWith('/uploads/')) return;
+  const fullPath = path.join(__dirname, '..', relativeUrl.replace(/^\//, ''));
+  fs.unlink(fullPath, () => {});
+};
+
 // Add a new expense to a site
 const addSiteExpense = async (req, res) => {
+  const uploadedImagePath = req.file ? `/uploads/challans/${req.file.filename}` : '';
+
   try {
     const { siteId } = req.params;
     const {
@@ -14,15 +24,18 @@ const addSiteExpense = async (req, res) => {
       date,
       paymentMode,
       billNumber,
+      challanNumber,
       notes,
     } = req.body;
 
     const site = await Site.findById(siteId);
     if (!site) {
+      removeUploadedFile(uploadedImagePath);
       return res.status(404).json({ message: 'Site not found' });
     }
 
     if (!title || !amount) {
+      removeUploadedFile(uploadedImagePath);
       return res.status(400).json({ message: 'Title and amount are required' });
     }
 
@@ -35,12 +48,15 @@ const addSiteExpense = async (req, res) => {
       date: date || new Date(),
       paymentMode: paymentMode || 'cash',
       billNumber,
+      challanNumber,
+      challanImage: uploadedImagePath,
       notes,
       createdBy: req.account?._id,
     });
 
     res.status(201).json(expense);
   } catch (error) {
+    removeUploadedFile(uploadedImagePath);
     res.status(500).json({ message: error.message });
   }
 };
@@ -78,6 +94,8 @@ const deleteSiteExpense = async (req, res) => {
     if (!expense) {
       return res.status(404).json({ message: 'Expense not found' });
     }
+
+    removeUploadedFile(expense.challanImage);
 
     res.status(200).json({ message: 'Expense deleted successfully' });
   } catch (error) {

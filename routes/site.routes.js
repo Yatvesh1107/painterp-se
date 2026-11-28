@@ -18,6 +18,7 @@ const {
   getSiteProfitLoss,
 } = require('../controllers/siteExpense.controller');
 const { protect, authorize } = require('../middlewares/auth.middleware');
+const { uploadChallanImage } = require('../middlewares/upload.middleware');
 const { ROLES } = require('../config/roles');
 
 const router = express.Router();
@@ -46,7 +47,10 @@ router
   .delete(deleteSubcontractorPayment);
 
 // Site Expenses & Profit/Loss routes
-router.route('/:siteId/expenses').get(getSiteExpenses).post(addSiteExpense);
+router
+  .route('/:siteId/expenses')
+  .get(getSiteExpenses)
+  .post(uploadChallanImage, addSiteExpense);
 router.route('/:siteId/expenses/:expenseId').delete(deleteSiteExpense);
 router.route('/:siteId/profit-loss').get(getSiteProfitLoss);
 
