@@ -292,6 +292,7 @@ const getAttendanceHistory = async (req, res) => {
       .populate('labour', 'name phone dailyWage skill')
       .populate('shifts.site', 'name siteNumber')
       .populate('assignedBy', 'name role')
+      .populate('confirmedBy', 'name role')
       .sort({ dateString: -1 });
 
     res.status(200).json(history);
